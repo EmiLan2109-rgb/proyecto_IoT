@@ -1,0 +1,4 @@
+.env
+database/.env
+broker/config/passwd
+broker/certs/
