@@ -2,3 +2,5 @@
 database/.env
 broker/config/passwd
 broker/certs/
+database/pgdata/
+
