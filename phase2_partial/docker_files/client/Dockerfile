@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/client.py .
 COPY src/wait_for.py .
+COPY src/enroll.py .
 # Wait for broker + DB, then exec the client
 CMD ["python", "-u", "wait_for.py"]
 

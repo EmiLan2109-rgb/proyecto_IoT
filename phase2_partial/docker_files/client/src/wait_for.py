@@ -2,10 +2,12 @@ import os
 import socket
 import time
 import sys
+from enroll import enroll_and_authenticate
 
 DEPS = [
     ("postgres", os.environ.get("POSTGRES_HOST", "postgres"), int(os.environ.get("POSTGRES_PORT", "5432"))),
     ("mosquitto", os.environ.get("MQTT_HOST", "mosquitto"), int(os.environ.get("MQTT_PORT", "1883"))),
+    ("api", os.environ.get("API_HOST", "api"), int(os.environ.get("API_PORT", "8000"))),
 ]
 
 TIMEOUT = int(os.environ.get("WAIT_TIMEOUT", "120"))
@@ -36,6 +38,9 @@ def main():
     else:
         print(f"[wait] TIMEOUT — still down: {pending_names}")
         sys.exit(1)
+    
+    # Enrola el nodo (si es la primera vez) y confirma que autentica contra la API
+    enroll_and_authenticate()
 
     # Replace this process with the client (clean PID 1)
     os.execvp("python", ["python", "-u", "client.py"])
