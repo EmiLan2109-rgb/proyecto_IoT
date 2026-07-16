@@ -84,21 +84,43 @@ def get_data(table: str, limit: int = 100):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            query = sql.SQL(
-                """
-                SELECT id, temp, received_at
-                FROM {table}
-                ORDER BY id DESC
-                LIMIT %s
-                """
-            ).format(table=sql.Identifier(table))
-            cur.execute(query, (limit,))
-            rows = cur.fetchall()
-        # Se invierte para que quede en orden cronológico ascendente (útil para graficar)
-        readings = [
-            {"id": r[0], "temp": r[1], "received_at": r[2].isoformat()}
-            for r in reversed(rows)
-        ]
+            if table == "devices":
+                query = sql.SQL(
+                    """
+                    SELECT device_id, device_name, device_type, status, created_at, last_seen
+                    FROM {table}
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """
+                ).format(table=sql.Identifier(table))
+                cur.execute(query, (limit,))
+                rows = cur.fetchall()
+                readings = [
+                    {
+                        "device_id": str(r[0]),
+                        "device_name": r[1],
+                        "device_type": r[2],
+                        "status": r[3],
+                        "created_at": r[4].isoformat() if r[4] else None,
+                        "last_seen": r[5].isoformat() if r[5] else None,
+                    }
+                    for r in reversed(rows)
+                ]
+            else:
+                query = sql.SQL(
+                    """
+                    SELECT id, temp, received_at
+                    FROM {table}
+                    ORDER BY id DESC
+                    LIMIT %s
+                    """
+                ).format(table=sql.Identifier(table))
+                cur.execute(query, (limit,))
+                rows = cur.fetchall()
+                readings = [
+                    {"id": r[0], "temp": r[1], "received_at": r[2].isoformat()}
+                    for r in reversed(rows)
+                ]
         return {"table": table, "count": len(readings), "readings": readings}
     finally:
         put_conn(conn)

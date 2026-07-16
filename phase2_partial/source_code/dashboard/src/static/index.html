@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>IoT Dashboard</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
   :root {
     --bg: #0d1117;
@@ -152,7 +152,7 @@
       <h2>Registros recientes</h2>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>ID</th><th>Temperatura</th><th>Recibido</th></tr></thead>
+          <thead id="readings-head"></thead>
           <tbody id="readings-body"></tbody>
         </table>
       </div>
@@ -226,8 +226,29 @@ function initChart() {
 }
 
 function renderReadings(readings) {
+  const head = document.getElementById('readings-head');
   const body = document.getElementById('readings-body');
   body.innerHTML = '';
+
+  if (currentTable === 'devices') {
+    head.innerHTML = `<tr><th>Device ID</th><th>Nombre</th><th>Tipo</th><th>Estado</th><th>Creado</th><th>Últ. visto</th></tr>`;
+    [...readings].reverse().forEach(r => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${r.device_id}</td><td>${r.device_name}</td><td>${r.device_type}</td>
+        <td>${r.status}</td><td>${new Date(r.created_at).toLocaleString()}</td>
+        <td>${r.last_seen ? new Date(r.last_seen).toLocaleString() : '—'}</td>`;
+      body.appendChild(tr);
+    });
+
+    document.querySelector('.chart-container').parentElement.style.display = 'none';
+    document.getElementById('stat-latest').textContent = '—';
+    document.getElementById('stat-avg').textContent = '—';
+    document.getElementById('stat-count').textContent = readings.length;
+    return;
+  }
+
+  document.querySelector('.chart-container').parentElement.style.display = '';
+  head.innerHTML = `<tr><th>ID</th><th>Temperatura</th><th>Recibido</th></tr>`;
   [...readings].reverse().forEach(r => {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td>${r.id}</td><td>${r.temp ?? '—'}</td><td>${new Date(r.received_at).toLocaleString()}</td>`;

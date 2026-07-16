@@ -92,3 +92,19 @@ services:
       depends_on:
         postgres:
           condition: service_healthy
+
+  sensor-sim:
+      build: ./phase2_partial/source_code/sensor-sim
+      restart: unless-stopped
+      environment:
+        MQTT_HOST: mosquitto
+        MQTT_PORT: 8883
+        MQTT_TLS: "true"
+        MQTT_USER: ${MQTT_USER}
+        MQTT_PASSWORD: ${MQTT_PASSWORD}
+        MQTT_TOPIC: ${MQTT_TOPIC}
+      volumes:
+        - ./phase2_partial/docker_files/broker/certs/ca.crt:/app/ca.crt:ro
+      depends_on:
+        mosquitto:
+          condition: service_healthy
