@@ -3,3 +3,5 @@ phase2_partial/docker_files/database/.env
 phase2_partial/docker_files/broker/config/passwd
 phase2_partial/docker_files/broker/certs/
 phase2_partial/docker_files/database/pgdata/
+database/pgdata/18/docker/
+
