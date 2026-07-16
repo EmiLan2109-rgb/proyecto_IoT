@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IoT Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-border: #21262d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #3fb950;
+    --accent-soft: rgba(63, 185, 80, 0.15);
+    --danger: #f85149;
+    --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    min-height: 100vh;
+  }
+
+  header {
+    padding: 24px 32px;
+    border-bottom: 1px solid var(--panel-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  header h1 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .status-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    display: inline-block;
+  }
+
+  .status-dot.online { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .status-dot.offline { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+
+  main {
+    padding: 24px 32px;
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 20px;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+
+  .panel h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    margin: 0 0 14px 0;
+  }
+
+  #table-list { list-style: none; margin: 0; padding: 0; }
+  #table-list li {
+    padding: 10px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 14px;
+    margin-bottom: 4px;
+    transition: background 0.15s, color 0.15s;
+  }
+  #table-list li:hover { background: #1c2129; color: var(--text); }
+  #table-list li.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+  .content { display: flex; flex-direction: column; gap: 20px; }
+
+  .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .stat-card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+  .stat-card .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+  .stat-card .value { font-size: 26px; font-weight: 700; margin-top: 6px; }
+
+  .chart-container { height: 320px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--panel-border); }
+  th { color: var(--text-dim); font-weight: 500; text-transform: uppercase; font-size: 11px; letter-spacing: 0.04em; }
+  tbody tr:hover { background: #1c2129; }
+
+  .empty-state { color: var(--text-dim); text-align: center; padding: 40px 0; font-size: 14px; }
+  .table-scroll { max-height: 280px; overflow-y: auto; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="status-dot" id="status-dot"></span>IoT Security Dashboard</h1>
+  <span id="last-update" style="color: var(--text-dim); font-size: 13px;"></span>
+</header>
+
+<main>
+  <div class="panel">
+    <h2>Tópicos / Tablas</h2>
+    <ul id="table-list"><li class="empty-state">Cargando...</li></ul>
+  </div>
+
+  <div class="content">
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="label">Última lectura</div>
+        <div class="value" id="stat-latest">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Promedio (visible)</div>
+        <div class="value" id="stat-avg">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Total de registros</div>
+        <div class="value" id="stat-count">—</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Serie de tiempo</h2>
+      <div class="chart-container"><canvas id="chart"></canvas></div>
+    </div>
+
+    <div class="panel">
+      <h2>Registros recientes</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>ID</th><th>Temperatura</th><th>Recibido</th></tr></thead>
+          <tbody id="readings-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+const POLL_MS = 5000;
+let currentTable = null;
+let chart = null;
+
+async function fetchJSON(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+function setStatus(online) {
+  document.getElementById('status-dot').className = 'status-dot ' + (online ? 'online' : 'offline');
+}
+
+function renderTableList(tables) {
+  const list = document.getElementById('table-list');
+  if (tables.length === 0) {
+    list.innerHTML = '<li class="empty-state">Sin datos aún</li>';
+    return;
+  }
+  list.innerHTML = '';
+  tables.forEach(name => {
+    const li = document.createElement('li');
+    li.textContent = name;
+    li.dataset.table = name;
+    if (name === currentTable) li.classList.add('active');
+    li.onclick = () => selectTable(name);
+    list.appendChild(li);
+  });
+}
+
+function selectTable(name) {
+  currentTable = name;
+  document.querySelectorAll('#table-list li').forEach(li => {
+    li.classList.toggle('active', li.dataset.table === name);
+  });
+  loadData();
+}
+
+function initChart() {
+  const ctx = document.getElementById('chart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{
+      label: 'Temperatura',
+      data: [],
+      borderColor: '#3fb950',
+      backgroundColor: 'rgba(63,185,80,0.1)',
+      tension: 0.3,
+      fill: true,
+      pointRadius: 2,
+    }]},
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }
+      },
+      plugins: { legend: { labels: { color: '#e6edf3' } } }
+    }
+  });
+}
+
+function renderReadings(readings) {
+  const body = document.getElementById('readings-body');
+  body.innerHTML = '';
+  [...readings].reverse().forEach(r => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${r.id}</td><td>${r.temp ?? '—'}</td><td>${new Date(r.received_at).toLocaleString()}</td>`;
+    body.appendChild(tr);
+  });
+
+  chart.data.labels = readings.map(r => new Date(r.received_at).toLocaleTimeString());
+  chart.data.datasets[0].data = readings.map(r => r.temp);
+  chart.update();
+
+  const temps = readings.map(r => r.temp).filter(t => t != null);
+  document.getElementById('stat-latest').textContent = temps.length ? temps[temps.length - 1] + ' °C' : '—';
+  document.getElementById('stat-avg').textContent = temps.length ? (temps.reduce((a,b) => a+b, 0) / temps.length).toFixed(2) + ' °C' : '—';
+  document.getElementById('stat-count').textContent = readings.length;
+}
+
+async function loadTables() {
+  try {
+    const { tables } = await fetchJSON('/api/tables');
+    setStatus(true);
+    renderTableList(tables);
+    if (!currentTable && tables.length > 0) selectTable(tables[0]);
+  } catch (e) {
+    setStatus(false);
+  }
+}
+
+async function loadData() {
+  if (!currentTable) return;
+  try {
+    const data = await fetchJSON(`/api/data/${currentTable}?limit=100`);
+    setStatus(true);
+    renderReadings(data.readings);
+    document.getElementById('last-update').textContent = 'Actualizado: ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    setStatus(false);
+  }
+}
+
+initChart();
+loadTables();
+setInterval(loadTables, POLL_MS);
+setInterval(loadData, POLL_MS);
+</script>
+</body>
+</html>
