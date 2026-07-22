@@ -1,5 +1,6 @@
 import os
 import json
+import requests
 import psycopg2
 from psycopg2 import pool, sql
 import paho.mqtt.client as mqtt
@@ -12,6 +13,8 @@ MQTT_PASSWORD = os.environ["MQTT_PASSWORD"]
 MQTT_TOPIC = os.environ["MQTT_TOPIC"]
 MQTT_TLS = os.environ.get("MQTT_TLS", "false").lower() == "true"
 MQTT_CA_CERT = os.environ.get("MQTT_CA_CERT", "/app/ca.crt")
+
+API_URL = os.environ.get("API_URL", "http://api:8000")
 
 PG_HOST = os.environ["POSTGRES_HOST"]
 PG_PORT = os.environ.get("POSTGRES_PORT", "5432")
@@ -27,30 +30,54 @@ db_pool = psycopg2.pool.SimpleConnectionPool(
     port=PG_PORT,
     dbname=PG_DB,
     user=PG_USER,
-    password=PG_PASSWORD
+    password=PG_PASSWORD,
+    sslmode="require",
 )
 
 
-def table_name_for_topic(topic: str) -> str:
-    return topic.strip("/").replace("/", "_")
+def table_name_for_metric(metric_name: str) -> str:
+    return metric_name.strip("/").replace("/", "_").replace("-", "_")
 
 
 def ensure_table(cur, table: str):
     query = sql.SQL("""
         CREATE TABLE IF NOT EXISTS {table} (
             id SERIAL PRIMARY KEY,
-            temp DOUBLE PRECISION,
+            device_id UUID NOT NULL,
+            room_name TEXT,
+            value DOUBLE PRECISION,
             received_at TIMESTAMPTZ DEFAULT NOW()
         )
     """).format(table=sql.Identifier(table))
     cur.execute(query)
 
 
-def insert_reading(cur, table: str, payload: dict):
+def insert_reading(cur, table: str, device_id: str, room_name: str, value):
     query = sql.SQL(
-        "INSERT INTO {table} (temp) VALUES (%s)"
+        "INSERT INTO {table} (device_id, room_name, value) VALUES (%s, %s, %s)"
     ).format(table=sql.Identifier(table))
-    cur.execute(query, (payload.get("temp"),))
+    cur.execute(query, (device_id, room_name, value))
+
+
+def verify_device(device_id: str, api_key: str) -> dict | None:
+    """
+    Valida el dispositivo contra la API antes de confiar en el dato.
+    Devuelve el dict con device_name/device_type/room_name si es válido,
+    o None si la autenticación falla.
+    """
+    try:
+        resp = requests.post(
+            f"{API_URL}/api/v1/devices/verify",
+            json={"device_id": device_id, "api_key": api_key},
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        print(f"[auth] rejected device_id={device_id}: {resp.status_code} {resp.text}")
+        return None
+    except requests.exceptions.RequestException as e:
+        print(f"[auth] API not reachable, discarding message: {e}")
+        return None
 
 
 def on_connect(client, userdata, flags, rc, properties=None):
@@ -60,7 +87,6 @@ def on_connect(client, userdata, flags, rc, properties=None):
 
 def on_message(client, userdata, msg):
     topic = msg.topic
-    table = table_name_for_topic(topic)
 
     try:
         payload = json.loads(msg.payload.decode())
@@ -68,7 +94,24 @@ def on_message(client, userdata, msg):
         print(f"[warn] non-JSON payload on {topic}: {msg.payload!r}")
         return
 
-    print(f"[mqtt] {topic} -> {payload}")
+    device_id = payload.get("device_id")
+    api_key = payload.get("api_key")
+    metric_name = payload.get("metric_name")
+    value = payload.get("value")
+
+    if not device_id or not api_key or not metric_name or value is None:
+        print(f"[warn] incomplete payload on {topic}: {payload}")
+        return
+
+    device = verify_device(device_id, api_key)
+    if device is None:
+        print(f"[warn] discarding unauthenticated message from device_id={device_id}")
+        return
+
+    room_name = device.get("room_name")
+    table = table_name_for_metric(metric_name)
+
+    print(f"[mqtt] {topic} -> device={device_id} room={room_name} {metric_name}={value}")
 
     conn = None
     try:
@@ -76,7 +119,7 @@ def on_message(client, userdata, msg):
         conn.autocommit = True
         with conn.cursor() as cur:
             ensure_table(cur, table)
-            insert_reading(cur, table, payload)
+            insert_reading(cur, table, device_id, room_name, value)
         print(f"[db] stored in table '{table}'")
     except Exception as e:
         print(f"[db error] {e}")

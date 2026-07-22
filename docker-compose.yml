@@ -1,3 +1,10 @@
+networks:
+  iot_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.0.0/16
+
 services:
   postgres:
     image: postgres:18
@@ -8,8 +15,18 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - ./database/pgdata:/var/lib/postgresql
+      - ./phase2_partial/docker_files/database/certs:/certs:ro
+    command: >
+      postgres
+      -c ssl=on
+      -c ssl_cert_file=/certs/server.crt
+      -c ssl_key_file=/certs/server.key
+      -c ssl_ca_file=/certs/ca.crt
     ports:
       - "5432:5432"
+    networks:
+      iot_net:
+        ipv4_address: 192.168.50.10
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -26,6 +43,9 @@ services:
       - ./phase2_partial/docker_files/broker/config:/mosquitto/config
       - ./phase2_partial/docker_files/broker/data:/mosquitto/data
       - ./phase2_partial/docker_files/broker/certs:/mosquitto/certs:ro
+    networks:
+      iot_net:
+        ipv4_address: 192.168.50.11
     healthcheck:
       test: ["CMD-SHELL", "mosquitto_pub -h localhost -p 1883 -t healthcheck -m ping -u ${MQTT_USER} -P ${MQTT_PASSWORD} || exit 1"]
       interval: 5s
@@ -55,6 +75,9 @@ services:
     volumes:
       - ./phase2_partial/docker_files/broker/certs/ca.crt:/app/ca.crt:ro
       - ./phase2_partial/docker_files/client/data:/app/data
+    networks:
+      iot_net:
+        ipv4_address: 192.168.50.2
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,6 +97,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "8080:8000"
+    networks:
+      iot_net:
+        ipv4_address: 192.168.50.20
     depends_on:
       postgres:
         condition: service_healthy
@@ -87,8 +113,12 @@ services:
         POSTGRES_DB: ${POSTGRES_DB}
         POSTGRES_USER: ${POSTGRES_USER}
         POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+        ADMIN_KEY: ${ADMIN_KEY}
       ports:
         - "8000:8000"
+      networks:
+        iot_net:
+          ipv4_address: 192.168.50.21
       depends_on:
         postgres:
           condition: service_healthy
@@ -103,8 +133,20 @@ services:
         MQTT_USER: ${MQTT_USER}
         MQTT_PASSWORD: ${MQTT_PASSWORD}
         MQTT_TOPIC: ${MQTT_TOPIC}
+        API_URL: http://api:8000
+        API_HOST: api
+        API_PORT: 8000
+        DEVICE_NAME: sensor-sala-01
+        DEVICE_TYPE: sensor
+        PUBLISH_INTERVAL: 30
       volumes:
         - ./phase2_partial/docker_files/broker/certs/ca.crt:/app/ca.crt:ro
+        - ./phase2_partial/source_code/sensor-sim/data:/app/data
+      networks:
+        iot_net:
+          ipv4_address: 192.168.20.2
       depends_on:
         mosquitto:
           condition: service_healthy
+        api:
+          condition: service_started

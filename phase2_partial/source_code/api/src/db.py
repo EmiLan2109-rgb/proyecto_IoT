@@ -16,6 +16,7 @@ db_pool = psycopg2.pool.SimpleConnectionPool(
     dbname=PG_DB,
     user=PG_USER,
     password=PG_PASSWORD,
+    sslmode="require",
 )
 
 
@@ -26,15 +27,15 @@ def get_conn():
 def put_conn(conn):
     db_pool.putconn(conn)
 
-
 def init_db():
-    """Crea la tabla devices si no existe (modelo tomado del proposal document)."""
+    """Crea las tablas devices y rooms si no existen (modelo tomado del proposal document)."""
     conn = get_conn()
     try:
         conn.autocommit = True
         with conn.cursor() as cur:
             # Requerida para gen_random_uuid()
             cur.execute('CREATE EXTENSION IF NOT EXISTS pgcrypto')
+
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS devices (
@@ -43,8 +44,19 @@ def init_db():
                     device_type TEXT NOT NULL,
                     api_key_hash TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'active',
+                    room_name TEXT,
+                    enrolled_ip INET,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     last_seen TIMESTAMPTZ
+                )
+                """
+            )
+
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS rooms (
+                    room_name TEXT PRIMARY KEY,
+                    cidr CIDR NOT NULL
                 )
                 """
             )

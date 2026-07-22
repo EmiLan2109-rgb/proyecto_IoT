@@ -3,6 +3,8 @@ import json
 import time
 import paho.mqtt.client as mqtt
 
+from enroll import _load_credentials, CREDENTIALS_PATH
+
 MQTT_HOST = os.environ["MQTT_HOST"]
 MQTT_PORT = int(os.environ["MQTT_PORT"])
 MQTT_USER = os.environ["MQTT_USER"]
@@ -14,7 +16,8 @@ MQTT_CA_CERT = os.environ.get("MQTT_CA_CERT", "/app/ca.crt")
 TEMP_MIN = 23.0
 TEMP_MAX = 27.0
 STEP = 0.2
-INTERVAL = 5
+INTERVAL = int(os.environ.get("PUBLISH_INTERVAL", "5"))
+
 
 def temperature_sequence():
     """Generador infinito: onda triangular entre TEMP_MIN y TEMP_MAX."""
@@ -36,6 +39,13 @@ def on_connect(client, userdata, flags, rc, properties=None):
 
 
 def main():
+    creds = _load_credentials()
+    if creds is None:
+        raise RuntimeError(f"no credentials found at {CREDENTIALS_PATH}, enrollment must run first")
+
+    device_id = creds["device_id"]
+    api_key = creds["api_key"]
+
     client = mqtt.Client(client_id="sensor-sim", protocol=mqtt.MQTTv5)
     client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
     client.on_connect = on_connect
@@ -53,7 +63,12 @@ def main():
             time.sleep(5)
 
     for temp in temperature_sequence():
-        payload = json.dumps({"temp": temp})
+        payload = json.dumps({
+            "device_id": device_id,
+            "api_key": api_key,
+            "metric_name": "temperature",
+            "value": temp,
+        })
         client.publish(MQTT_TOPIC, payload)
         print(f"[sensor-sim] published -> {payload}")
         time.sleep(INTERVAL)

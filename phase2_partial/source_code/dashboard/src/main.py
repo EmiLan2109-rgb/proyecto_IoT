@@ -23,6 +23,7 @@ db_pool = psycopg2.pool.SimpleConnectionPool(
     dbname=PG_DB,
     user=PG_USER,
     password=PG_PASSWORD,
+    sslmode="require",
 )
 
 app = FastAPI(title="IoT Dashboard API")
